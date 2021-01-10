@@ -219,12 +219,12 @@ xtable(higher_snps, caption = "Taula 2: SNPs més significatius", label = "Taula
   print(type = "html", include.rownames = FALSE)
 ```
 
-Els SNPs amb p-valors més alts, per sobre de 1e-7, són el rs3027845 i el rs3217980. Els gens dels p-valors més significatius són variats, no hi ha gens que es repeteixin. Després d'aquests 2 SNPs sigificatius, podem veure 10 més per sobre 1e-5 que mereixen atenció.
+Els SNPs amb p-valors més baixos, per sota de 1e-7, són el rs3027845 i el rs3217980. Els gens dels p-valors més significatius són variats, no hi ha gens que es repeteixin. Després d'aquests 2 SNPs sigificatius, podem veure 10 més per sota de 1e-5 que mereixen atenció.
 
 
 ## 2.6 Manhattan plots
 
-Els manhattan plots són uns gràfics molt útils, per visualitzar els SNPs més significatius, i detectar regions significatives d'associació. En l’eix d’ordenades tenim el negatiu del logaritme en base 10 del p-valor no corregit calculat en la secció 2.5.
+Els manhattan plots són uns gràfics molt útils, per visualitzar els SNPs més significatius, i detectar regions significatives d'associació. En l’eix d’ordenades tenim el negatiu del logaritme en base 10 del p-valor no corregit, calculat a la secció 2.5.
 
 ```{r fig.width = 15, fig.height = 7, echo = T, eval = T, fig.cap = "Grafic 2"}
 par(mfrow = c(1, 1))
@@ -262,7 +262,7 @@ En el Gràfic 4 es pot veure clarament que la regió s'ha de tenir en compte. Hi
 
 Els SNPs rs3027845 i rs3217980 s'han conciderat significatius, afectant a l'index de massa corporal directament. Els SNPs rs9565191, rs10069453, rs7298190, rs12530865, rs12816398, rs1337687, rs17148253, rs9939043, rs17151612 i rs1428758 s'han marcat com a possibles significatius. Es recomana tenir-los en compte en possibles estudis.
 
-En concret, el snp rs9939043 està en una regió on s'han trobat més de 6 snps que es podrien arribar a conciderar possibles significatius. En aquesta regió està el gen CNTNAP4, i es podria estudiar més endavant en estudis de xarxes de gens per si té alguna relació amb l'índex de massa corporal.
+En concret, el snp rs9939043 està en una regió on s'han trobat més de 6 snps molt propers arribar a conciderar possibles significatius. En aquesta regió està el gen CNTNAP4, i es podria estudiar més endavant en estudis de xarxes de gens, per si té alguna relació amb l'índex de massa corporal.
 
 # ANNEX
 
