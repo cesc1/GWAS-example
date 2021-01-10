@@ -1,0 +1,274 @@
+---
+title: "Entrega 2: Genome-wide Association Studies"
+subtitle: "Big Data en Biociències"
+author: "Francesc Aguirre, 1398024"
+date: "Gener de 2021"
+output:
+  html_document: 
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 16px;
+  }
+td {  /* Table  */
+  font-size: 18px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkGreen;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkRed;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkRed;
+}
+code.r{ /* Code block */
+    font-size: 16px;
+}
+
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(xtable)
+options(xtable.comment = FALSE)
+```
+
+
+# 1. Objectiu
+
+Detectar nous SNPs associats a l'index de massa corporal (bmi), utilitzant les dades *coronary*.
+
+
+# 2. Metodologia, anàlisi de dades i resultats
+
+## 2.1 Obtenció de les dades i paquets
+
+### 2.1.1 Paquets estadístics d'R
+
+```{r message = FALSE}
+library(snpStats)
+library(magrittr)
+library(qqman)
+
+library(rvest)
+library(stringr)
+```
+
+S'utilitzarà el paquet estadístic **snpStats** per facilitar l'anàlisi genètica GWAS, i el paquet **magrittr** per la creació de pipelines. El paquet **qqman** és molt útil per la creació de manhattan plots. Els paquets **rvest** i **stringr** s’han fet servir per web scrapping.
+
+Qualsevol funció o codi R que no surti en aquest document es pot trobar a [github](https://github.com/cesc1/GWAS-example) (secció ANNEX).
+
+
+### 2.1.2 Taula de dades
+
+```{r}
+setwd("..")
+root_path <- getwd()
+
+dataG <- read.plink(paste0(root_path, "/data/coronary"))
+dataS <- read.table(paste0(root_path, "/data/coronary.txt"), 
+                    header = T, row.names = "id") # id s'ha fixat com a nom de fila
+source(paste0(root_path, "/code/GWAS.R"))
+```
+
+S'han utilitzat dades d'un estudi epidemiològic sobre el bmi, on s'inclou la informació genètica de `r nrow(dataS)` individus en format plink, a més del gènere, edat, estat de fumador i el bmi.
+
+
+## 2.2 Anàlisi descriptiva no genètica
+
+En aquesta primera anàlisi descriptiva de les variables no genètiques, es busca una visualització ràpida de la distribució de les variables. També s’intenta detectar possibles errors de mostreig que puguin crear biaix en el futur anàlisi.
+
+```{r, results = 'asis', eval = T, echo = F}
+source(paste0(root_path, "/code/univariate_table.R"))
+var_names <- c("gender", "smoke", "age", "bmi", "ev4", "ev3")
+univariant_table <- create_table(dataS[, var_names], var_names) %>%
+  xtable(caption = "Taula 1: Estadistics univariants no genètics", label = "Taula1") %>%
+  print(type = "html", include.rownames = FALSE)
+```
+
+La Taula 1 d’estadístics univariants ens mostra, el percentatge per cada nivell en variables categòriques, o els quartils en dades numèriques (mediana si es detecta asimetria, mitjana si no es detecta). El nombre de persones fumadores o exfumadores és major que el 60% de la mostra i la edat dels individus tendeix a ser 40 anys. Es detecta la presència de valors perduts, sobretot en bmi (que és la nostre variable dependent), amb `r 425 - 406` NAs.
+
+
+## 2.3 Control de qualitat
+
+### 2.3.1 ID i sexe match
+
+- S'ha comprobat que els identificadors dels dos fitxers de dades coincideixen, i estàn en el mateix ordre.
+
+```{r}
+dataS <- id_match(data = dataS, id = dataG$fam$member)
+```
+
+Si tornem a executar la funció, podem comprobar que els identificadors dels dos fitxer coincideixen.
+
+```{r}
+dataS <- id_match(dataS, dataG$fam$member)
+```
+
+- També s'ha comprobat que el sexe de cada individu en els dos fitxers coincideixen
+
+```{r}
+dataS$gender <- dataS$gender %>%
+  factor(levels = c("Males", "Females")) %>%
+  as.numeric()
+all(dataS$gender == dataG$fam$sex)
+```
+
+No es detecta cap problema.
+
+### 2.3.2 Genotip
+
+S'eliminaran de l'anàlisi els SNPs que continguin:
+
+- Un nombre de valors perduts (individus) superior al 10%.
+- Un test de Hardy-Weinberg (HWE) significatiu (0.01). Es fa per comprobar que les freqüències dels al·lels individuals coincideixin amb les poblacionals.
+- Una freqüència d'al·lels minoritaris (MAF) inferior al 0.5%.
+
+```{r}
+dataG$genotypes <- dataG$genotypes %>%
+  remove_indNA(minCallr = 0.90) %>%
+  remove_HWE(signif = 0.01) %>%
+  remove_MAF(minFreq = 0.005)
+```
+
+S'ha eliminat `r nrow(dataG$map)- ncol(dataG$genotypes)` SNPs que no complien les condicions de qualitat, que són un `r round((nrow(dataG$map)- ncol(dataG$genotypes)) / nrow(dataG$map) * 100, 2)`% de dels SNPs inicials.
+
+
+## 2.4 Selecció de variables no genètiques
+
+### 2.4.1 Variables d'ajust
+
+Les variables d'ajust ja es donen a l'enunciat, que són les variables **ev3** i **ev4**.
+
+### 2.4.2 Components Principals
+
+Tot i que les variables **ev3** i **ev4** ja representen l'ajust per estratificació de la població, s'il·lustra el procés d'obtenció de les components per poder-les ajustar més endavant.
+
+```{r echo = T, eval = F}
+xxmat <- xxt(dataG$genotypes, correct.for.missing = FALSE)
+```
+
+```{r echo = F, eval = T}
+#write.table(xxmat, paste0(root_path, "/data/pca.txt"))
+xxmat <- as.matrix(read.table(paste0(root_path, "/data/pca.txt")))
+```
+
+```{r}
+pca <- eigen(xxmat, symmetric = TRUE)
+pcs <- pca$vectors[, 1:3]
+```
+
+```{r fig.width = 15, fig.height = 7, echo = F, eval = T, fig.cap = "Grafic 1"}
+par(mfrow = c(1, 2))
+plot(pca$values[1:10]/sum(pca$values) * 100, type = "b", ylab = "% variancia explicada", xlab = "n CP")
+plot(cumsum(pca$values[1:10]) / sum(pca$values) * 100, type = "b", ylab = "% variancia explicada acumulada", xlab = "n CP")
+abline(h = cumsum(pca$values[1:3])[3]/sum(pca$values)*100, col = "red") # Agafem 4 comp
+```
+
+Agafar 3 components principals sembla una bona opció en aquest cas, tot i que la variabilitat només arriba a 1.3%. S'hauria de comprobar si és suficient per explicar l'estratificació en la població del genotip.
+
+## 2.5 Models d'associació genètica
+
+Per cada SNP, s'ha creat un model lineal additiu. 
+
+Amb anterioritat ens han informat que les variables a ajustar són **ev3** i **ev4**. Com que ev4 només té 5 nivells, s'aplicarà la funció strata del paquet survival sobre aquesta.
+
+```{r}
+res <- snp.rhs.tests(bmi ~ ev3 + strata(ev4), family = "Gaussian",
+                         data = dataS, snp.data = dataG$genotypes)
+
+row <- rownames(dataG$map) %in% names(res)
+taula <- data.frame(CHR = dataG$map$chromosome[row],
+                    BP = dataG$map$position[row],
+                    P = p.value(res),
+                    SNP = names(res))
+
+higher_snps <- taula[taula$P < 1e-05, ]
+higher_snps <- higher_snps[order(higher_snps$P),]
+```
+
+
+```{r echo = F, eval = T, results = 'asis'}
+source(paste0(root_path, "/code/webScrappingSNP.R"))
+
+higher_snps <- lapply(higher_snps$SNP, function(snp_name){
+  datanode <- load_ncbi_datanode(snp_name)
+  chromosoma = extractCh(datanode)
+  data.frame(Gene = extractGen(datanode))
+}) %>% 
+  do.call(what = rbind) %>%
+  cbind(higher_snps)
+
+higher_snps$P <- formatC(higher_snps$P, format = "e", digits = 2)
+xtable(higher_snps, caption = "Taula 2: SNPs més significatius", label = "Taula2") %>%
+  print(type = "html", include.rownames = FALSE)
+```
+
+Els SNPs amb p-valors més alts, per sobre de 1e-7, són el rs3027845 i el rs3217980. Els gens dels p-valors més significatius són variats, no hi ha gens que es repeteixin. Després d'aquests 2 SNPs sigificatius, podem veure 10 més per sobre 1e-5 que mereixen atenció.
+
+
+## 2.6 Manhattan plots
+
+Els manhattan plots són uns gràfics molt útils, per visualitzar els SNPs més significatius, i detectar regions significatives d'associació. En l’eix d’ordenades tenim el negatiu del logaritme en base 10 del p-valor no corregit calculat en la secció 2.5.
+
+```{r fig.width = 15, fig.height = 7, echo = T, eval = T, fig.cap = "Grafic 2"}
+par(mfrow = c(1, 1))
+taula_no_na <- taula %>%
+  extract(complete.cases(taula),) 
+
+taula_no_na %>%
+  extract(taula_no_na$P < 0.1,) %>%
+  manhattan(ylim = c(1, 8), annotatePval = 1e-5)
+```
+
+L'SNP rs3027845 està per sobre de la línia vermella de significació, i el rs3217980 s'hi acosta molt, que també es podria arribar a conciderar significatiu. Com s'ha comentat en la secció 2.5, tenim 10 més SNPs que mereixen atenció, per sobre de 1e-5. 
+
+Es pot veure clarament, que no s'observen regions extremadament concentrades de p-valors superiors a 1e-5. Si es mira una mica més de prop però, hi ha 2 SNPs molt propers, un d'ells el rs7298190, amb un p-valor de 1.25e-06. El mateix passa amb l'SNP rs9939043, que té un p-valor més baix de 5.82e-06, però es pot veure clarament una fila de p-valors molt aprop de 1e-5. Aquestes dues regions podrien ser importants, i seria interesant veure-les de més aprop.
+
+```{r eval = T, echo = T}
+taula_no_na %>%
+  write.table(paste0(root_path, "/data/taulaP.txt"), quote = FALSE, row.names = FALSE)
+```
+
+```{r echo = F, eval = T, fig.align = 'center', out.width = "80%", fig.cap = "Grafic 3: Manhattan plot centrat en el SNP rs7298190"}
+knitr::include_graphics(paste0(root_path, "/images/manhattan1.jpg"))
+```
+
+En el Gràfic 3, ara podem veure amb més claretat els dos SNPs, que són molt propers i altament correlacionats. No s'observa cap més SNP significatiu per sota d'ells.
+
+```{r echo = F, eval = T, fig.align = 'center', out.width = "80%", fig.cap = "Grafic 4: Manhattan plot centrat en el SNP rs9939043"}
+knitr::include_graphics(paste0(root_path, "/images/manhattan2.jpg"))
+```
+
+En el Gràfic 4 es pot veure clarament que la regió s'ha de tenir en compte. Hi ha com a mínim 6 SNPs enganchats en una mateixa regió, amb un p-valor superior a 1e-4, proper a 1e-5. Els dos SNPs més significatius estan altament correlacionats, i la resta ho estan per sobre de 0.6.
+
+
+# 3. Conclusions
+
+Els SNPs rs3027845 i rs3217980 s'han conciderat significatius, afectant a l'index de massa corporal directament. Els SNPs rs9565191, rs10069453, rs7298190, rs12530865, rs12816398, rs1337687, rs17148253, rs9939043, rs17151612 i rs1428758 s'han marcat com a possibles significatius. Es recomana tenir-los en compte en possibles estudis.
+
+En concret, el snp rs9939043 està en una regió on s'han trobat més de 6 snps que es podrien arribar a conciderar possibles significatius. En aquesta regió està el gen CNTNAP4, i es podria estudiar més endavant en estudis de xarxes de gens per si té alguna relació amb l'index de massa corporal.
+
+# ANNEX
+
+El codi d'aquesta entrega es pot trobar a github: [cesc1/GWAS-example](https://github.com/cesc1/GWAS-example).
+
+- code: Funcions utilitzades en l'entrega.
+- main: Document .Rdm amb el respectiu .html entregat.
+- data: Dades utilitzades asthma, i taules de dades creades.
+
